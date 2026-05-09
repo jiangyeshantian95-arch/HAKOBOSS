@@ -1,18 +1,9 @@
 const express = require('express');
-const line = require('@line/bot-sdk');
 const OpenAI = require('openai');
 
 const app = express();
 
-const lineConfig = {
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-};
-
-const lineClient = new line.messagingApi.MessagingApiClient({
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-});
-
+const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const userDB = {};
@@ -29,6 +20,20 @@ function getMonthlySummary(records) {
   const sales = monthly.filter(r => r.type === 'sales').reduce((sum, r) => sum + r.amount, 0);
   const expenses = monthly.filter(r => r.type === 'expense').reduce((sum, r) => sum + r.amount, 0);
   return { sales, expenses, profit: sales - expenses };
+}
+
+async function replyToLine(replyToken, text) {
+  await fetch('https://api.line.me/v2/bot/message/reply', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${CHANNEL_ACCESS_TOKEN}`,
+    },
+    body: JSON.stringify({
+      replyToken,
+      messages: [{ type: 'text', text }],
+    }),
+  });
 }
 
 async function processMessage(userId, userMessage) {
@@ -67,16 +72,14 @@ app.get('/', (req, res) => {
   res.json({ status: 'HAKO.BOSS running 🚛' });
 });
 
-app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
+app.post('/webhook', express.json(), async (req, res) => {
   res.sendStatus(200);
-  for (const event of req.body.events) {
+  const events = req.body.events || [];
+  for (const event of events) {
     if (event.type !== 'message' || event.message.type !== 'text') continue;
     try {
       const reply = await processMessage(event.source.userId, event.message.text);
-      await lineClient.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: reply }],
-      });
+      await replyToLine(event.replyToken, reply);
     } catch (err) {
       console.error('Error:', err.message);
     }
