@@ -2,10 +2,8 @@ const express = require('express');
 const OpenAI = require('openai');
 
 const app = express();
-
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 const userDB = {};
 
 function getUser(userId) {
@@ -69,7 +67,7 @@ async function processMessage(userId, userMessage) {
 }
 
 app.get('/', (req, res) => {
-  res.json({ status: 'HAKO.BOSS running 🚛' });
+  res.json({ status: 'HAKO.BOSS running' });
 });
 
 app.post('/webhook', express.json(), async (req, res) => {
