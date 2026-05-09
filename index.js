@@ -1,5 +1,5 @@
 const express = require('express');
-const line = require('@line/bot-sdk');
+const { Client, middleware } = require('@line/bot-sdk');
 const OpenAI = require('openai');
 
 const app = express();
@@ -9,10 +9,7 @@ const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
 };
 
-const lineClient = new line.messagingApi.MessagingApiClient({
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-});
-
+const lineClient = new Client(lineConfig);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const userDB = {};
@@ -27,10 +24,10 @@ function getUser(userId) {
 function getMonthlySummary(records) {
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const monthly = records.filter(r => r.date.startsWith(thisMonth));
+  const monthly = records.filter(r => r.date && r.date.startsWith(thisMonth));
   const sales = monthly.filter(r => r.type === 'sales').reduce((sum, r) => sum + r.amount, 0);
   const expenses = monthly.filter(r => r.type === 'expense').reduce((sum, r) => sum + r.amount, 0);
-  return { sales, expenses, profit: sales - expenses, count: monthly.length };
+  return { sales, expenses, profit: sales - expenses };
 }
 
 async function processMessage(userId, userMessage) {
@@ -38,20 +35,14 @@ async function processMessage(userId, userMessage) {
   const summary = getMonthlySummary(user.records);
   const today = new Date().toISOString().split('T')[0];
 
-  const systemPrompt = `あなたはHAKO.BOSSという個人事業主専用AIアシスタントです。売上・経費を記録し、経営状況を報告します。必ずJSON形式で返答してください。
-
-今月：売上¥${summary.sales.toLocaleString()} 経費¥${summary.expenses.toLocaleString()} 手取り¥${summary.profit.toLocaleString()} 今日:${today}
-
-JSONフォーマット：
-{"message":"返答（絵文字使用・短く）","record":{"type":"sales"or"expense"or null,"amount":数値or null,"category":"カテゴリ名"or null}}
-
-記録なし時はrecord:null`;
-
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
+      {
+        role: 'system',
+        content: `あなたはHAKO.BOSSという個人事業主専用AIアシスタントです。今月：売上¥${summary.sales.toLocaleString()} 経費¥${summary.expenses.toLocaleString()} 手取り¥${summary.profit.toLocaleString()} 今日:${today} 売上・経費を記録し、経営状況を報告します。必ずJSON形式で返答してください。{"message":"返答（絵文字使用・短く）","record":{"type":"sales"か"expense"かnull,"amount":数値かnull,"category":"カテゴリ名"かnull}} 記録なし時はrecord:null`
+      },
+      { role: 'user', content: userMessage }
     ],
     response_format: { type: 'json_object' },
     temperature: 0.3,
@@ -64,7 +55,6 @@ JSONフォーマット：
       type: result.record.type,
       amount: result.record.amount,
       category: result.record.category || '未分類',
-      memo: userMessage,
       date: today,
     });
   }
@@ -73,26 +63,21 @@ JSONフォーマット：
 }
 
 app.get('/', (req, res) => {
-  res.json({ status: 'HAKO.BOSS is running 🚛' });
+  res.json({ status: 'HAKO.BOSS running 🚛' });
 });
 
-app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
-  res.json({ status: 'ok' });
+app.post('/webhook', middleware(lineConfig), async (req, res) => {
+  res.sendStatus(200);
   const events = req.body.events;
-  await Promise.all(
-    events.map(async (event) => {
-      if (event.type !== 'message' || event.message.type !== 'text') return;
-      try {
-        const replyText = await processMessage(event.source.userId, event.message.text);
-        await lineClient.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: replyText }],
-        });
-      } catch (err) {
-        console.error('Error:', err);
-      }
-    })
-  );
+  for (const event of events) {
+    if (event.type !== 'message' || event.message.type !== 'text') continue;
+    try {
+      const reply = await processMessage(event.source.userId, event.message.text);
+      await lineClient.replyMessage(event.replyToken, { type: 'text', text: reply });
+    } catch (err) {
+      console.error('Error:', err.message);
+    }
+  }
 });
 
 module.exports = app;
