@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, middleware } = require('@line/bot-sdk');
+const line = require('@line/bot-sdk');
 const OpenAI = require('openai');
 
 const app = express();
@@ -9,15 +9,16 @@ const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
 };
 
-const lineClient = new Client(lineConfig);
+const lineClient = new line.messagingApi.MessagingApiClient({
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+});
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const userDB = {};
 
 function getUser(userId) {
-  if (!userDB[userId]) {
-    userDB[userId] = { records: [] };
-  }
+  if (!userDB[userId]) userDB[userId] = { records: [] };
   return userDB[userId];
 }
 
@@ -40,7 +41,7 @@ async function processMessage(userId, userMessage) {
     messages: [
       {
         role: 'system',
-        content: `あなたはHAKO.BOSSという個人事業主専用AIアシスタントです。今月：売上¥${summary.sales.toLocaleString()} 経費¥${summary.expenses.toLocaleString()} 手取り¥${summary.profit.toLocaleString()} 今日:${today} 売上・経費を記録し、経営状況を報告します。必ずJSON形式で返答してください。{"message":"返答（絵文字使用・短く）","record":{"type":"sales"か"expense"かnull,"amount":数値かnull,"category":"カテゴリ名"かnull}} 記録なし時はrecord:null`
+        content: `あなたはHAKO.BOSSという個人事業主専用AIアシスタントです。今月：売上¥${summary.sales.toLocaleString()} 経費¥${summary.expenses.toLocaleString()} 手取り¥${summary.profit.toLocaleString()} 今日:${today} 必ずJSON形式で返答。{"message":"返答（絵文字・短く）","record":{"type":"sales"か"expense"かnull,"amount":数値かnull,"category":"カテゴリ"かnull}} 記録なし時record:null`
       },
       { role: 'user', content: userMessage }
     ],
@@ -66,14 +67,16 @@ app.get('/', (req, res) => {
   res.json({ status: 'HAKO.BOSS running 🚛' });
 });
 
-app.post('/webhook', middleware(lineConfig), async (req, res) => {
+app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
   res.sendStatus(200);
-  const events = req.body.events;
-  for (const event of events) {
+  for (const event of req.body.events) {
     if (event.type !== 'message' || event.message.type !== 'text') continue;
     try {
       const reply = await processMessage(event.source.userId, event.message.text);
-      await lineClient.replyMessage(event.replyToken, { type: 'text', text: reply });
+      await lineClient.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: reply }],
+      });
     } catch (err) {
       console.error('Error:', err.message);
     }
