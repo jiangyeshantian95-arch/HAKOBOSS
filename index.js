@@ -2,6 +2,8 @@ const express = require('express');
 const OpenAI = require('openai');
 
 const app = express();
+app.use(express.json());
+
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const userDB = {};
@@ -70,7 +72,7 @@ app.get('/', (req, res) => {
   res.json({ status: 'HAKO.BOSS running' });
 });
 
-app.post('/webhook', express.json(), async (req, res) => {
+app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
   const events = req.body.events || [];
   for (const event of events) {
@@ -83,8 +85,10 @@ app.post('/webhook', express.json(), async (req, res) => {
     }
   }
 });
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`HAKO.BOSS running on port ${PORT}`);
 });
+
 module.exports = app;
