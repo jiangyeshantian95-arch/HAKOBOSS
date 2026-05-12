@@ -83,5 +83,8 @@ app.post('/webhook', express.json(), async (req, res) => {
     }
   }
 });
-
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`HAKO.BOSS running on port ${PORT}`);
+});
 module.exports = app;
